@@ -8,6 +8,7 @@ COPY apps/web-dashboard/dist ./dist/
 FROM rust:1-slim-bookworm AS backend-builder
 RUN apt-get update && apt-get install -y \
     pkg-config libssl-dev build-essential protobuf-compiler cmake clang \
+    libwayland-dev libxkbcommon-dev libpango1.0-dev libgtk-3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
