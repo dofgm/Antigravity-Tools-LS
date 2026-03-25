@@ -71,38 +71,50 @@ jobs:
       - name: Rename and Prepare Artifacts
         shell: bash
         run: |
-          # 提取架构信息用于重命名
+          # 建立更健壮的架构识别机制
           if [[ "${{ matrix.args }}" == *"--target aarch64"* ]]; then
             ARCH="aarch64"
           elif [[ "${{ matrix.args }}" == *"--target x86_64"* ]]; then
             ARCH="x64"
           elif [[ "${{ matrix.args }}" == *"--target universal"* ]]; then
             ARCH="universal"
+          elif [[ "${{ matrix.platform }}" == *"arm"* ]]; then
+            ARCH="aarch64"
+          elif [[ "${{ matrix.platform }}" == *"ubuntu"* ]]; then
+            ARCH="amd64"
+          elif [[ "${{ matrix.platform }}" == *"windows"* ]]; then
+            ARCH="x64"
           else
-            ARCH="default"
+            ARCH="unknown"
           fi
           
-          echo "Renaming artifacts for ARCH: $ARCH and VER: ${{ github.ref_name }}"
+          echo "Processing artifacts for ARCH: $ARCH on ${{ matrix.platform }}"
           mkdir -p artifacts-out
           
           VER_CLEAN=${{ github.ref_name }}
           VER_CLEAN=${VER_CLEAN#v}
           
-          # 仅从 bundle 目录提取，杜绝抓取 target 下的 83 个无关二进制文件
-          # macOS: 安装包对齐 Cask，更新包对齐 updater.json 契约 (不带 v 版本号前缀)
-          find target -path "*/bundle/macos/*.dmg" -exec cp {} artifacts-out/Antigravity.Tools_${VER_CLEAN}_${ARCH}.dmg \; || true
-          find target -path "*/bundle/macos/*.app.tar.gz" -exec cp {} artifacts-out/Antigravity.Tools_${ARCH}.app.tar.gz \; || true
-          find target -path "*/bundle/macos/*.app.tar.gz.sig" -exec cp {} artifacts-out/Antigravity.Tools_${ARCH}.app.tar.gz.sig \; || true
+          # 1. macOS 处理 (DMG + Updater Tarball)
+          # 尝试多个可能的 Tauri v2 路径 (适配 universal 与单架构)
+          find target -name "*.dmg" -exec cp {} artifacts-out/Antigravity.Tools_${VER_CLEAN}_${ARCH}.dmg \; 2>/dev/null || true
+          find target -name "*.app.tar.gz" -exec cp {} artifacts-out/Antigravity.Tools_${ARCH}.app.tar.gz \; 2>/dev/null || true
+          find target -name "*.app.tar.gz.sig" -exec cp {} artifacts-out/Antigravity.Tools_${ARCH}.app.tar.gz.sig \; 2>/dev/null || true
           
-          # Windows: 严格匹配 Antigravity.Tools_${VER}_x64-setup.exe
-          find target -path "*/bundle/nsis/*.exe" -exec cp {} artifacts-out/Antigravity.Tools_${VER_CLEAN}_x64-setup.exe \; || true
+          # 2. Windows 处理 (NSIS Setup + Portable EXE)
+          if [[ "${{ matrix.platform }}" == *"windows"* ]]; then
+            # NSIS 安装包
+            find target -name "*setup.exe" -exec cp {} artifacts-out/Antigravity.Tools_${VER_CLEAN}_x64-setup.exe \; 2>/dev/null || true
+            # Portable 单文件 (直接拷贝编译出的二进制)
+            cp target/release/antigravity_tools_ls.exe artifacts-out/Antigravity.Tools_${VER_CLEAN}_x64_portable.exe 2>/dev/null || true
+          fi
           
-          # Linux: 对齐 amd64/aarch64 架构标记
-          if [[ "$ARCH" == "x64" ]]; then L_ARCH="amd64"; else L_ARCH="$ARCH"; fi
-          find target -path "*/bundle/appimage/*.AppImage" -exec cp {} artifacts-out/Antigravity.Tools_${VER_CLEAN}_${L_ARCH}.AppImage \; || true
-          find target -path "*/bundle/appimage/*.AppImage.sig" -exec cp {} artifacts-out/Antigravity.Tools_${VER_CLEAN}_${L_ARCH}.AppImage.sig \; || true
+          # 3. Linux 处理 (AppImage + Signatures)
+          if [[ "${{ matrix.platform }}" == *"ubuntu"* ]]; then
+            find target -name "*.AppImage" -exec cp {} artifacts-out/Antigravity.Tools_${VER_CLEAN}_${ARCH}.AppImage \; 2>/dev/null || true
+            find target -name "*.AppImage.sig" -exec cp {} artifacts-out/Antigravity.Tools_${VER_CLEAN}_${ARCH}.AppImage.sig \; 2>/dev/null || true
+          fi
           
-          echo "Final cleaned artifacts listing:"
+          echo "Contents of artifacts-out:"
           ls -R artifacts-out/
 
       - name: Upload Artifacts
