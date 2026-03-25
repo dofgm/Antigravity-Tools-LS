@@ -63,9 +63,24 @@ impl VersionManager {
 
                 #[cfg(not(target_os = "macos"))]
                 {
-                    // Windows/Linux: 尝试查找同级或 resources/app 下的 package.json
+                    // Windows/Linux: 优先从 product.json 读取 ideVersion
+                    let product_json = if path.is_file() {
+                        path.parent().map(|p| p.join("resources/app/product.json")).unwrap_or_else(|| path.join("product.json"))
+                    } else {
+                        path.join("resources/app/product.json")
+                    };
+
+                    if let Ok(content) = std::fs::read_to_string(&product_json) {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                            if let Some(v) = json.get("ideVersion").and_then(|v| v.as_str()) {
+                                return Some(v.to_string());
+                            }
+                        }
+                    }
+
+                    // 兜底：尝试查找同级或 resources/app 下的 package.json
                     let possible_json = if path.is_file() {
-                        path.parent().map(|p| p.join("resources/app/package.json")).unwrap_or(path.clone())
+                        path.parent().map(|p| p.join("resources/app/package.json")).unwrap_or_else(|| path.join("package.json"))
                     } else {
                         path.join("resources/app/package.json")
                     };
@@ -104,9 +119,20 @@ impl VersionManager {
         #[cfg(target_os = "windows")]
         {
             if let Ok(user_profile) = std::env::var("USERPROFILE") {
-                let path = std::path::Path::new(&user_profile)
-                    .join("AppData\\Local\\Programs\\Antigravity\\resources\\app\\package.json");
-                if let Ok(content) = std::fs::read_to_string(path) {
+                let base_path = std::path::Path::new(&user_profile)
+                    .join("AppData\\Local\\Programs\\Antigravity\\resources\\app");
+                
+                // 1. 尝试 product.json
+                if let Ok(content) = std::fs::read_to_string(base_path.join("product.json")) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if let Some(v) = json.get("ideVersion").and_then(|v| v.as_str()) {
+                            return Some(v.to_string());
+                        }
+                    }
+                }
+
+                // 2. 兜底 package.json
+                if let Ok(content) = std::fs::read_to_string(base_path.join("package.json")) {
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
                         if let Some(v) = json.get("version").and_then(|v| v.as_str()) {
                             return Some(v.to_string());

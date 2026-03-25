@@ -394,15 +394,37 @@ impl AssetProvisioner {
                 if !current.pop() { break; }
             }
         }
-        #[cfg(target_os = "windows")]
+        #[cfg(not(target_os = "macos"))]
         {
-            let pkg_json = base_path.join("package.json");
-             if let Ok(content) = std::fs::read_to_string(pkg_json) {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if let Some(v) = json.get("version").and_then(|v| v.as_str()) {
-                        return Some(v.to_string());
+            let mut current = base_path.to_path_buf();
+            // 向上递归查找，最多 6 层，以找到 IDE 根目录的 product.json 或 package.json
+            for _ in 0..6 {
+                // 1. 优先尝试 product.json (ideVersion)
+                let prod_json = current.join("product.json");
+                if let Ok(content) = std::fs::read_to_string(prod_json) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if let Some(v) = json.get("ideVersion").and_then(|v| v.as_str()) {
+                            return Some(v.to_string());
+                        }
                     }
                 }
+
+                // 2. 兜底 package.json (如果 product.json 不存在或没有 ideVersion)
+                let pkg_json = current.join("package.json");
+                if let Ok(content) = std::fs::read_to_string(pkg_json) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                        // 如果是 extension 的 package.json (通常 version 较小)，我们继续往上找
+                        // 对于 Antigravity，IDE 根目录的 version 是 1.107.0，extension 是 0.2.0
+                        if let Some(v) = json.get("version").and_then(|v| v.as_str()) {
+                            // 如果版本号不是 0.x.x，或者已经找不到更上层了，就返回
+                            if !v.starts_with("0.") {
+                                return Some(v.to_string());
+                            }
+                        }
+                    }
+                }
+
+                if !current.pop() { break; }
             }
         }
         None
